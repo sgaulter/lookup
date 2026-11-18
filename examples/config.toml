@@ -1,0 +1,73 @@
+# lookup configuration
+#
+# Save as $XDG_CONFIG_HOME/lookup/config.toml, or ~/.config/lookup/config.toml
+# when XDG_CONFIG_HOME is unset. Use lookup --config PATH for another location.
+# The file is optional; omitted settings use the defaults shown below. Keep
+# top-level settings above the [popup] and [provider.*] tables.
+
+# Providers to query, in display order. Selected text is sent to each provider.
+# Bundled: dictionary (English Dictionary API), wikipedia (English summaries),
+# and kagi (FastGPT; requires a token). List available names with
+# lookup --list-providers. Override this list for one invocation with
+# lookup --providers dictionary wikipedia.
+providers = ["dictionary", "wikipedia"]
+
+# Collapse selection whitespace, then truncate to this many characters.
+# Must be a positive integer.
+selection-max-length = 100
+
+# Command used to read the PRIMARY selection, not the regular copy clipboard.
+# "auto" uses the package default. The generic package prefers Wayland when
+# WAYLAND_DISPLAY is set, otherwise X11 when DISPLAY is set. With neither set,
+# it defaults to Wayland. Nix's lookup-wayland and lookup-x11 variants select
+# their backend through LOOKUP_CLIPBOARD_BACKEND.
+# An explicit argument array overrides the package default.
+primary-paste = "auto"
+# primary-paste = ["wl-paste", "--primary", "--no-newline"]
+# primary-paste = ["xclip", "-selection", "primary", "-out"]
+# primary-paste = ["xsel", "--primary", "--output"]
+
+# General search link shown in the popup. {query} is replaced with the
+# URL-encoded selection. Set to "" to hide the link.
+web-search-url = "https://kagi.com/?q={query}"
+
+[popup]
+# Window identifiers passed to Yad; useful for compositor/window-manager rules.
+window-name = "lookup"
+window-class = "lookup"
+
+# Width in pixels; must be a positive integer.
+width = 520
+# "auto": 160 + 100 pixels per selected provider, bounded to 360–760.
+# Alternatively set a positive integer in pixels.
+height = "auto"
+
+# "default" lets the window manager choose placement. "pointer" requests
+# placement at the mouse pointer (Yad's --mouse). Native Wayland compositors
+# may restrict explicit positioning.
+position = "default"
+
+# Close the popup when it loses focus.
+close-on-unfocus = false
+
+# Extra Yad arguments, appended verbatim after generated arguments. Each array
+# element is one argument; shell expansion is not performed. Example:
+# ["--undecorated", "--skip-taskbar"]
+additional-yad-flags = []
+
+# Per-provider options. Configuring a provider here does not enable it; add its
+# name to the top-level providers list or use --providers. Every provider
+# accepts a positive timeout in seconds. Closing lookup ends its daemon workers
+# and connections.
+
+[provider.dictionary]
+timeout = 8
+
+[provider.wikipedia]
+timeout = 8
+
+[provider.kagi]
+timeout = 25
+# File containing the API token; ~ expands to your home directory.
+# Keep token files private and out of version control.
+token-path = "~/.config/kagi/token"
