@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tomllib
 from contextlib import suppress
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ defaultConfig: dict[str, Any] = {
     "providers": ["dictionary", "wikipedia"],
     "selection-max-length": 100,
     "primary-paste": "auto",
-    "web-search-url": "https://kagi.com/?q={query}",
+    "web-search-url": "https://duckduckgo.com/?q={query}",
     "popup": {
         "window-name": "lookup",
         "window-class": "lookup",
@@ -175,6 +176,12 @@ def makeParser() -> argparse.ArgumentParser:
     parser.add_argument("--list-providers", dest="listProviders", action="store_true")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
+        "--default-config",
+        dest="printDefaultConfig",
+        action="store_true",
+        help="print the commented default TOML configuration",
+    )
+    mode.add_argument(
         "--providers",
         nargs="+",
         choices=availableProviders(),
@@ -195,6 +202,11 @@ def interrupted(signum: int, frame: object) -> None:
 
 def main() -> int:
     args = makeParser().parse_args()
+    if args.printDefaultConfig:
+        sys.stdout.write(
+            files("lookup").joinpath("default-config.toml").read_text(encoding="utf-8")
+        )
+        return 0
     if args.listProviders:
         print("\n".join(availableProviders()))
         return 0

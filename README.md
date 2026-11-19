@@ -12,6 +12,7 @@ run concurrently, with results appearing asynchronously as they arrive.
 - **[Yad](https://github.com/v1cont/yad) with HTML support**; check with `yad --help-html`.
 - A PRIMARY-selection reader: `wl-paste` (wl-clipboard) on Wayland, or `xclip`/`xsel` on X11.
 - `markdown-it-py` for Markdown formatting.
+- `xdg-open` (xdg-utils) to open links in your default browser.
 - Optional: `notify-send` for desktop error notifications.
 
 ## Install
@@ -61,6 +62,7 @@ tool, which reads the PRIMARY selection; it does not simulate a copy keystroke.
 
 ```sh
 lookup --list-providers
+lookup --default-config
 lookup
 lookup --providers dictionary wikipedia
 lookup --config /path/to/config.toml

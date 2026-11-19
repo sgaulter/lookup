@@ -4,6 +4,7 @@ import io
 import os
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -25,6 +26,25 @@ class ConfigTests(unittest.TestCase):
         )
         self.environment.start()
         self.addCleanup(self.environment.stop)
+
+    def testDefaultConfigOutputNeedsNoUserConfigOrClipboard(self):
+        self.config.write_text("invalid TOML [")
+        with (
+            patch.object(sys, "argv", ["lookup", "--default-config"]),
+            patch.object(app, "readSelection") as read,
+            patch.object(app, "loadConfig") as load,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(app.main(), 0)
+        read.assert_not_called()
+        load.assert_not_called()
+        example = Path(__file__).parents[1] / "examples/config.toml"
+        self.assertEqual(output.getvalue(), example.read_text())
+        config = tomllib.loads(output.getvalue())
+        for key, value in app.defaultConfig.items():
+            if key != "provider":
+                self.assertEqual(config[key], value)
+        app.validateConfig(config)
 
     def testClipboardBackendSelection(self):
         cases = [
@@ -120,7 +140,6 @@ additional-yad-flags = ["--undecorated", "--text=literal $(text)"]
             patch.object(
                 app.subprocess, "run", return_value=Mock(stdout="  hello world ")
             ) as read,
-            patch("lookup.popup.serve", return_value=Mock(server_port=12345)),
             patch("lookup.popup.Lookup.start"),
             patch("lookup.popup.subprocess.Popen") as process,
         ):

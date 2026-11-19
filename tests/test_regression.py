@@ -1,8 +1,12 @@
 """Regression tests for bundled parsers and popup rendering/lifecycle."""
 
+import os
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
+from urllib.parse import unquote, urlsplit
 
 from lookup import popup as lookup
 from lookup.provider import SourceError
@@ -184,22 +188,60 @@ class RegressionTests(unittest.TestCase):
             self.assertEqual(result.links[0].url, "https://en.wiktionary.org/wiki/word")
             self.assertEqual(result.detail, "")
 
-    def testPopupLaunchFailureClosesServerWithoutStartingFetches(self):
-        server = Mock(server_port=12345)
-        model = Mock()
-        model.sources = {}
+    def testFileRefreshPublishesResultsAndStopsWhenDone(self):
+        model = Mock(sources={})
+        model.body.side_effect = ["Loading…", "Partial", "Answer<!--done-->"]
+        popup = Mock()
+        pages = []
+        paths = []
+
+        def launch(argv, **kwargs):
+            self.assertIn("--browser", argv)
+            self.assertNotIn("--print-uri", argv)
+            self.assertTrue(any(arg.startswith("--uri-handler=") for arg in argv))
+            uri = next(
+                arg.removeprefix("--uri=") for arg in argv if arg.startswith("--uri=")
+            )
+            self.assertEqual(urlsplit(uri).scheme, "file")
+            paths.append(Path(unquote(urlsplit(uri).path)))
+            pages.append(paths[0].read_text())
+            return popup
+
+        def wait(timeout):
+            self.assertEqual(timeout, 0.25)
+            pages.append(paths[0].read_text())
+            if len(pages) == 2:
+                raise subprocess.TimeoutExpired("yad", timeout)
+            return 0
+
+        popup.wait.side_effect = wait
+        popup.poll.return_value = 0
+        with patch.object(lookup.subprocess, "Popen", side_effect=launch):
+            lookup.showPopup(model)
+        for html in pages[:2]:
+            self.assertIn("setTimeout(() => window.location.reload(), 250)", html)
+            self.assertNotIn('http-equiv="refresh"', html)
+        self.assertIn("Partial", pages[1])
+        self.assertIn("Answer", pages[2])
+        self.assertNotIn('http-equiv="refresh"', pages[2])
+        self.assertNotIn("<script", pages[2])
+        self.assertFalse(paths[0].parent.exists())
+
+    def testPopupLaunchFailureCleansFilesWithoutStartingFetches(self):
+        directory = tempfile.TemporaryDirectory()
+        model = Mock(sources={})
+        model.body.return_value = "Loading…"
         with (
-            patch.object(lookup, "serve", return_value=server),
+            patch.object(lookup, "TemporaryDirectory", return_value=directory),
             patch.object(lookup.subprocess, "Popen", side_effect=FileNotFoundError),
             self.assertRaises(FileNotFoundError),
         ):
             lookup.showPopup(model)
         model.start.assert_not_called()
-        server.shutdown.assert_called_once()
-        server.server_close.assert_called_once()
+        self.assertFalse(Path(directory.name).exists())
 
-    def testInterruptionTerminatesPopupAndClosesServer(self):
-        server = Mock(server_port=12345)
+    def testInterruptionTerminatesPopupAndCleansFiles(self):
+        directory = tempfile.TemporaryDirectory()
         popup = Mock()
         popup.wait.side_effect = [
             KeyboardInterrupt,
@@ -207,15 +249,52 @@ class RegressionTests(unittest.TestCase):
             0,
         ]
         popup.poll.return_value = None
-        model = Mock()
-        model.sources = {}
+        model = Mock(sources={})
+        model.body.return_value = "Loading…"
         with (
-            patch.object(lookup, "serve", return_value=server),
+            patch.object(lookup, "TemporaryDirectory", return_value=directory),
             patch.object(lookup.subprocess, "Popen", return_value=popup),
             self.assertRaises(KeyboardInterrupt),
         ):
             lookup.showPopup(model)
         popup.terminate.assert_called_once()
         popup.kill.assert_called_once()
-        server.shutdown.assert_called_once()
-        server.server_close.assert_called_once()
+        self.assertFalse(Path(directory.name).exists())
+
+    def testUriHandlerOpensWebLinksAndAllowsFileRefresh(self):
+        # Record launches/signals and wait for the background opener before exit.
+        script = (
+            'trap "wait" EXIT; kill() { printf "%s %s" "$1" "$2" > "$SIGNAL"; }; '
+            + lookup.uriHandler
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            opener = Path(directory) / "xdg-open"
+            opener.write_text('#!/bin/sh\nprintf "%s" "$1" > "$OUTPUT"\n')
+            opener.chmod(0o700)
+            output = Path(directory) / "opened"
+            signal = Path(directory) / "signal"
+            environment = dict(
+                os.environ,
+                OUTPUT=str(output),
+                SIGNAL=str(signal),
+                PATH=directory + os.pathsep + os.environ.get("PATH", ""),
+            )
+            for url in [
+                "https://example.org/?q=$(touch nope)&a='quoted'",
+                "http://example.org",
+            ]:
+                result = subprocess.run(
+                    ["sh", "-c", script, "handler", url], env=environment, timeout=2
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(output.read_text(), url)
+                self.assertFalse(signal.exists())
+                output.unlink()
+            result = subprocess.run(
+                ["sh", "-c", script, "handler", "file:///tmp/index.html"],
+                env=environment,
+                timeout=2,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+            self.assertFalse(signal.exists())

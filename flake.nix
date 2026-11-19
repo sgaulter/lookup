@@ -22,14 +22,15 @@
             nativeBuildInputs = [ pkgs.makeWrapper ];
             postFixup = ''
               wrapProgram "$out/bin/lookup" --prefix PATH : ${pkgs.lib.makeBinPath ([
-                (pkgs.yad.override { withWebkit = true; })
+                pkgs.yad
+                pkgs.xdg-utils
                 pkgs.libnotify
               ] ++ clipboardTools)} \
                 --set LOOKUP_CLIPBOARD_BACKEND ${backend}
             '';
             checkPhase = ''
               runHook preCheck
-              PYTHONPATH=src ${python.interpreter} -m unittest discover -s tests -v
+              PYTHONPATH="$PWD/src''${PYTHONPATH:+:$PYTHONPATH}" ${python.interpreter} -m unittest discover -s tests -v
               runHook postCheck
             '';
             pythonImportsCheck = [ "lookup.app" ];

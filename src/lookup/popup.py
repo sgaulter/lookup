@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 import threading
-from contextlib import suppress
 from html import escape
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import quote, urlsplit
 
 from markdown_it import MarkdownIt
@@ -117,33 +118,17 @@ class Lookup:
         return "".join(fragments)
 
 
-def serve(lookup: Lookup) -> ThreadingHTTPServer:
-    """Start a loopback HTTP server for the popup and live results."""
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            if self.path in ("/", "/index.html"):
-                content = page
-            elif self.path == "/body.html":
-                content = lookup.body()
-            else:
-                self.send_error(404)
-                return
-            payload = content.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            with suppress(BrokenPipeError, ConnectionResetError):
-                self.wfile.write(payload)
-
-        def log_message(self, format: str, *args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
+def writePage(path: Path, body: str) -> None:
+    """Atomically publish a complete page; stop refreshing once results finish."""
+    refresh = (
+        ""
+        if body.endswith("<!--done-->")
+        else "<script>setTimeout(() => window.location.reload(), 250);</script>"
+    )
+    content = page.replace("<!--refresh-->", refresh).replace("<!--results-->", body)
+    pending = path.with_suffix(".tmp")
+    pending.write_text(content, encoding="utf-8")
+    pending.replace(path)
 
 
 def showPopup(
@@ -157,18 +142,25 @@ def showPopup(
     closeOnUnfocus: bool = False,
     additionalYadFlags: list[str] | None = None,
 ) -> None:
-    """Run Yad, cleaning up the popup and server on exit."""
-    server = serve(lookup)
+    """Display a local page and open clicked web links outside the popup."""
+    directory = TemporaryDirectory(prefix="lookup-")
+    path = Path(directory.name) / "index.html"
     popup = None
     # Allow room per source, with a usable minimum and a cap for large selections.
     if height is None:
         height = min(760, max(360, 160 + 100 * len(lookup.sources)))
     try:
+        body = lookup.body()
+        writePage(path, body)
+        handler = path.with_name("open-link.sh")
+        handler.write_text(uriHandler, encoding="utf-8")
         popup = subprocess.Popen(
             [
                 "yad",
                 "--html",
-                f"--uri=http://127.0.0.1:{server.server_port}/",
+                "--browser",
+                f"--uri-handler=sh {shlex.quote(str(handler))}",
+                f"--uri={path.as_uri()}",
                 "--no-buttons",
                 "--escape-ok",
                 f"--name={name}",
@@ -182,7 +174,16 @@ def showPopup(
             ]
         )
         lookup.start()
-        status = popup.wait()
+        while True:
+            currentBody = lookup.body()
+            if currentBody != body:
+                writePage(path, currentBody)
+                body = currentBody
+            try:
+                status = popup.wait(timeout=0.25)
+                break
+            except subprocess.TimeoutExpired:
+                pass
         # Yad uses 1 for Cancel and 252 for Escape/window-manager dismissal.
         if status not in (0, 1, 252):
             raise SourceError(f"Yad exited with status {status}; check terminal output")
@@ -194,14 +195,25 @@ def showPopup(
             except subprocess.TimeoutExpired:
                 popup.kill()
                 popup.wait()
-        server.shutdown()
-        server.server_close()
+        directory.cleanup()
 
 
-# Embedded popup assets keep installation to one script.
+# Yad passes the navigation URI as $1. Return 1 to cancel external navigation.
+uriHandler = r"""
+case "$1" in
+    http://*|https://*)
+        xdg-open "$1" </dev/null >/dev/null 2>&1 &
+        exit 1 ;;
+esac
+exit 0
+"""
+
+
+# Embedded popup assets keep installation self-contained.
 # language=html
 page = r"""
 <!doctype html><html><head><meta charset="utf-8">
+<!--refresh-->
 <style>
   :root { color-scheme: light dark; }
   body { font: 14px/1.45 sans-serif; margin: 12px 16px; }
@@ -217,22 +229,6 @@ page = r"""
   .src { font-size: 12px; }
   a { text-decoration: none; }
 </style></head><body>
-<div id="c"><p class="dim">Loading…</p></div>
-<script>
-let last = "";
-async function tick() {
-  try {
-    const r = await fetch("body.html", { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);          // never show an error page
-    const t = await r.text();
-    if (t !== last) {
-      const c = document.getElementById("c");
-      c.innerHTML = t; last = t;
-    }
-    if (t.includes("<!--done-->")) return;
-  } catch (e) {}
-  setTimeout(tick, 250);
-}
-tick();
-</script></body></html>
+<!--results-->
+</body></html>
 """

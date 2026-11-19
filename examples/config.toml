@@ -29,7 +29,7 @@ primary-paste = "auto"
 
 # General search link shown in the popup. {query} is replaced with the
 # URL-encoded selection. Set to "" to hide the link.
-web-search-url = "https://kagi.com/?q={query}"
+web-search-url = "https://duckduckgo.com/?q={query}"
 
 [popup]
 # Window identifiers passed to Yad; useful for compositor/window-manager rules.

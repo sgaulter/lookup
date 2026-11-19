@@ -16,6 +16,9 @@ dependencies = ["markdown-it-py>=3,<5"]
 [project.scripts]
 lookup = "lookup.app:main"
 
+[tool.setuptools.package-data]
+lookup = ["default-config.toml"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
