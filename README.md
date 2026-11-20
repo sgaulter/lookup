@@ -5,6 +5,8 @@ A Linux alternative to macOS’s **Look Up** shortcut: select text and display l
 Works with X11 or Wayland, using a configurable clipboard command and [Yad](https://github.com/v1cont/yad). Providers
 run concurrently, with results appearing asynchronously as they arrive.
 
+![Lookup popup showing search results](docs/lookup_screenshot_1.png)
+
 ## Requirements
 
 - Linux desktop running X11 or Wayland.
@@ -92,22 +94,22 @@ below. The template shows every supported attribute and method override, includi
 3. `parseResult(data)`: turn decoded JSON into a `Result`, or return `None` for no match.
 
 ```python
-from ..provider import ProviderBase, Result, jsonObject, jsonString
+from ..provider import JSONValue, ProviderBase, Result, jsonObject, jsonString
 
 class Provider(ProviderBase):
     title = "Example"
     method = "GET"  # Or "POST" with a JSON body below.
 
     @staticmethod
-    def url(query):
+    def url(query: str) -> str:
         return f"https://example.org/search?q={query}"
 
     @staticmethod
-    def body(query):
+    def body(query: str) -> JSONValue | None:
         return None  # GET requires None; POST requires JSON, e.g. {"query": query}.
 
     @staticmethod
-    def parseResult(data):
+    def parseResult(data: JSONValue | None) -> Result | None:
         if data is None:
             return None
         return Result(text=jsonString(jsonObject(data).get("answer")))
