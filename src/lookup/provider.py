@@ -178,6 +178,10 @@ class ProviderBase(ABC):
         """Required: convert decoded JSON to display content, or None for no match."""
         raise NotImplementedError
 
+    def headers(self) -> dict[str, str]:
+        """Optional: extra HTTP headers; token-file auth is added separately."""
+        return {}
+
     # Shared implementation: ordinary providers inherit everything below.
 
     def __init__(self, options: dict[str, object] | None = None):
@@ -204,7 +208,7 @@ class ProviderBase(ABC):
         """Fetch JSON with the provider's configuration, without parsing it."""
         if self.lowercase:
             query = query.lower()
-        headers = {}
+        headers = self.headers().copy()
         tokenPath = self.config.get("token-path")
         if isinstance(tokenPath, str):
             try:

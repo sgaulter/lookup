@@ -39,6 +39,10 @@ class Provider(ProviderBase):
         # Optional Result fields: title, detail, links=(Link(...),), markdown=True.
         # Raise SourceError("safe message") for a provider-specific error.
 
+    def headers(self) -> dict[str, str]:
+        """Optional: extra HTTP headers. Token-file auth is inherited."""
+        return {}
+
     # Advanced overrides: normally leave these inherited. They are shown here
     # only for providers that need extra validation or a different fetch path.
     #

@@ -115,6 +115,23 @@ class ProviderTests(unittest.TestCase):
             Kagi().fetchJson("Café &a/b")
         url.assert_called_once_with("Caf%C3%A9%20%26a%2Fb")
 
+    def testAdditionalHeadersPreserveAuthentication(self):
+        extraHeaders = {"X-Client": "example"}
+        with (
+            patch.object(Kagi, "headers", return_value=extraHeaders),
+            patch.object(Path, "read_text", return_value="test-token"),
+            patch.object(provider, "requestJson", return_value={}) as request,
+        ):
+            Kagi().fetchJson("query")
+        self.assertEqual(
+            request.call_args.kwargs["headers"],
+            {
+                "X-Client": "example",
+                "Authorization": "Bot test-token",
+            },
+        )
+        self.assertEqual(extraHeaders, {"X-Client": "example"})
+
     def testHttpPostAndFailures(self):
         with patch.object(
             provider, "urlopen", return_value=io.BytesIO(b'{"ok":true}')
